@@ -25,27 +25,34 @@ if __name__ == "__main__":
     }
     train_set = datasets.make(train_set_cfg)
     val_set = datasets.make(val_set_cfg)
-    train_loader = DataLoader(train_set, batch_size=1024, shuffle=True)
-    val_loader = DataLoader(val_set, batch_size=512, shuffle=False)
+    train_loader = DataLoader(train_set, batch_size=1024, shuffle=True, num_workers=16)
+    val_loader = DataLoader(val_set, batch_size=512, shuffle=False, num_workers=16)
     
     model_cfg = {
         "name": "ModelForCls",
         "args": {
             "model_spec": {
-                "name": "ViT",
+                "name": "led3d",
                 "args": {
-                    "img_size": 128,
-                    "patch_size": 16,
-                    "in_chans": 1,
-                    "embed_dim": 256,
-                    "depth": 12,
-                    "num_heads": 8,
-                    "mlp_ratio": 4,
+                    "in_channels": 1,
+                    "num_classes": 509,
+                    "drop_p": 0.9,
                 }
+                # "name": "ViT",
+                # "args": {
+                #     "img_size": 128,
+                #     "patch_size": 16,
+                #     "in_chans": 1,
+                #     "embed_dim": 256,
+                #     "depth": 12,
+                #     "num_heads": 8,
+                #     "mlp_ratio": 4,
+                #     "cls_dropout": 0.9
+                # }
             },
             "optimizer_spec": {
                 "name": "adamw",
-                "args": {"lr": 3.e-4, "weight_decay": 0.05}
+                "args": {"lr": 1.e-4, "weight_decay": 0.05}
             },
             "num_classes": 509,
             "validation_on_gallery": True,
@@ -55,13 +62,13 @@ if __name__ == "__main__":
     }
 
     model = models.make(model_cfg)
-    wandb_logger = WandbLogger(project="Depth-Face-MAE", name="baseline")
+    wandb_logger = WandbLogger(project="Depth-Face-MAE", name="led3d")
     trainer = Trainer(
         accelerator="gpu",
         devices=[3],
         check_val_every_n_epoch=1,
         log_every_n_steps=10,
-        max_epochs=50,
+        max_epochs=20,
         precision="16-mixed",
         logger=wandb_logger
     )

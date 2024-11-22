@@ -15,6 +15,7 @@ class ModelForCls(LightningModule):
         self.optimizer_spec = optimizer_spec
         self.num_classes = num_classes
         self.kwargs = kwargs
+        self.train_acc = Accuracy(task="multiclass", num_classes=num_classes)
         self.metrics = nn.ParameterDict()
         self.metrics["total_accuracy"] = Accuracy(task="multiclass", num_classes=num_classes)
         if self.kwargs.get("is_lock3dface", False):
@@ -24,7 +25,9 @@ class ModelForCls(LightningModule):
     def training_step(self, batch, batch_idx):
         x, label, _ = batch
         loss, preds = self.model(x, label)
-        self.log("train/loss", loss, prog_bar=True, logger=True)
+        train_acc = self.train_acc(preds, label)
+        self.log("train/acc", train_acc, prog_bar=True, logger=True, on_step=True, on_epoch=True)
+        self.log("train/loss", loss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
         return loss
     
     def on_validation_epoch_start(self) -> None:
@@ -39,7 +42,7 @@ class ModelForCls(LightningModule):
             results = gallery.evaluation(feats, label, self.gallery_feats, self.gallery_labels,
                                          self.metrics, is_lock3dface, img_infos=infos)
             for k, v in self.metrics.items():
-                self.log(f"val/{k}", v.compute(), prog_bar=True, logger=True,
+                self.log(f"val/{k}", v, prog_bar=True, logger=True,
                          on_step=False, on_epoch=True)
         else:
             loss, preds = self.model(x, label)
