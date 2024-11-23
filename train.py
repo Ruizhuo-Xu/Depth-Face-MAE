@@ -6,6 +6,7 @@ from lightning import Trainer
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch import Trainer, seed_everything
 from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.callbacks import LearningRateMonitor
 
 from models import models
 from datasets import datasets
@@ -26,9 +27,9 @@ def main(cfg):
         wandb_logger.experiment.config.update(cfg)
         
     train_loader, val_loader = build_dataloader(cfg["dataset"])
-    model = models.make(cfg["model"])
+    model = models.make(cfg["model"], args={"steps_per_epoch": len(train_loader)})
         
-    callbacks = []
+    callbacks = [LearningRateMonitor(logging_interval="step")]
     ckpt_cfg = cfg["trainer"].get("checkpoint", None)
     if ckpt_cfg:
         ckpt_callback = ModelCheckpoint(**ckpt_cfg)
