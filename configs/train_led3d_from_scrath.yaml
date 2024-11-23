@@ -1,0 +1,48 @@
+dataset:
+  train_set:
+    name: ImgDataset
+    args: 
+      anno_file: ./data/lock3dface.json
+      split: train
+  val_set:
+    name: ImgDataset
+    args:
+      anno_file:  ./data/lock3dface.json
+      split: val
+      test_mode: True
+  batch_size: 1024
+  num_workers: 16
+
+model:
+  name: ModelForCls
+  args:
+    model_spec:
+      name: led3d
+      args:
+        in_channels: 1
+        num_classes: 509
+        drop_p: 0.9
+    optimizer_spec:
+      name: adamw
+      args: 
+        lr: 1.e-4
+        weight_decay: 0.05
+    num_classes: 509
+    validation_on_gallery: True
+    is_lock3dface: True
+    gallery_path:  ./data/lock3dface.json
+
+trainer:
+  wandb_logger:
+    name: led3d_from_scratch
+    project: Depth-Face-MAE
+  checkpoint:
+    every_n_epochs: 10
+    dirpath: /home/mnt/rz_mnt/depth-face-mae/checkpoints
+    filename: "{epoch:02d}-{global_step}"
+  args:
+    devices: [3]
+    max_epochs: 50
+    log_every_n_steps: 10
+    check_val_every_n_epoch: 1
+    precision: 16-mixed

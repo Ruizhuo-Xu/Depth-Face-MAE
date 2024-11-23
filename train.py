@@ -1,68 +1,55 @@
+import yaml
+import argparse
+
 from torch.utils.data import DataLoader
 from lightning import Trainer
 from lightning.pytorch.loggers import WandbLogger
+from lightning.pytorch import Trainer, seed_everything
+from lightning.pytorch.callbacks import ModelCheckpoint
 
 from models import models
 from datasets import datasets
 
+seed_everything(42, workers=True)
 
-if __name__ == "__main__":
-    path = "/home/rz/code/Depth-Face-MAE/data/lock3dface.json"
-    train_set_cfg = {
-        "name": "ImgDataset",
-        "args": {
-            "anno_file": path,
-            "split": "train",
-        }
-    }
-    val_set_cfg = {
-        "name": "ImgDataset",
-        "args": {
-            "anno_file": path,
-            "split": "val",
-            "test_mode": True,
-        }
-    }
-    train_set = datasets.make(train_set_cfg)
-    val_set = datasets.make(val_set_cfg)
-    train_loader = DataLoader(train_set, batch_size=1024, shuffle=True)
-    val_loader = DataLoader(val_set, batch_size=512, shuffle=False)
-    
-    model_cfg = {
-        "name": "ModelForCls",
-        "args": {
-            "model_spec": {
-                "name": "ViT",
-                "args": {
-                    "img_size": 128,
-                    "patch_size": 16,
-                    "in_chans": 1,
-                    "embed_dim": 256,
-                    "depth": 12,
-                    "num_heads": 8,
-                    "mlp_ratio": 4,
-                }
-            },
-            "optimizer_spec": {
-                "name": "adamw",
-                "args": {"lr": 3.e-4, "weight_decay": 0.05}
-            },
-            "num_classes": 509,
-            "validation_on_gallery": True,
-            "is_lock3dface": True,
-            "gallery_path": path
-        }
-    }
+def build_dataloader(cfg):
+    train_set = datasets.make(cfg["train_set"])
+    val_set = datasets.make(cfg["val_set"])
+    train_loader = DataLoader(train_set, batch_size=cfg["batch_size"], shuffle=True, num_workers=cfg["num_workers"])
+    val_loader = DataLoader(val_set, batch_size=cfg["batch_size"], shuffle=False, num_workers=cfg["num_workers"])
+    return train_loader, val_loader
 
-    model = models.make(model_cfg)
-    wandb_logger = WandbLogger(project="Depth-Face-MAE", name="baseline")
+def main(cfg):
+    wandb_logger_cfg = cfg["trainer"].get("wandb_logger", None)
+    wandb_logger = WandbLogger(**wandb_logger_cfg) if wandb_logger_cfg else None
+    if wandb_logger:
+        wandb_logger.experiment.config.update(cfg)
+        
+    train_loader, val_loader = build_dataloader(cfg["dataset"])
+    model = models.make(cfg["model"])
+        
+    callbacks = []
+    ckpt_cfg = cfg["trainer"].get("checkpoint", None)
+    if ckpt_cfg:
+        ckpt_callback = ModelCheckpoint(**ckpt_cfg)
+        callbacks.append(ckpt_callback)
+        
+    trainer_cfg = cfg["trainer"]["args"]
     trainer = Trainer(
+        **trainer_cfg,
         accelerator="gpu",
-        devices=[3],
-        check_val_every_n_epoch=1,
-        log_every_n_steps=10,
-        max_epochs=50,
-        precision="16-mixed",
-        logger=wandb_logger
+        logger=wandb_logger,
+        callbacks=callbacks
     )
     trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=val_loader)
+    
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config')
+    args = parser.parse_args()
+    
+    with open(args.config, 'r') as f:
+        cfg = yaml.load(f, Loader=yaml.FullLoader)
+        print(f"Config file loaded: {args.config}")
+        
+    main(cfg)

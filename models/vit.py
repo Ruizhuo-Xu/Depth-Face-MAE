@@ -111,7 +111,7 @@ class ViTForCls(nn.Module):
         latent = self.drop(latent)
         pred = self.head(latent)
         loss = self.forward_loss(pred, target)
-        return loss, latent
+        return loss, pred
 
 
 if __name__ == "__main__":
