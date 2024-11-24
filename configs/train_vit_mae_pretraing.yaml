@@ -7,6 +7,9 @@ epochs: &epochs
 lr_cfg: &lr
   lr: 6.e-4
 
+exp_name: &exp_name
+  name: vit_mae_pretraining_normal_map
+
 dataset:
   train_set:
     name: ImgDataset
@@ -40,6 +43,7 @@ model:
         decoder_depth: 8
         decoder_num_heads: 16
         norm_pix_loss: True
+        pred_normal_map: True
     optimizer_spec:
       name: adamw
       args: 
@@ -56,12 +60,13 @@ model:
 
 trainer:
   wandb_logger:
-    name: vit_mae_v0
+    <<: *exp_name
     project: Depth-Face-MAE
   checkpoint:
     every_n_epochs: 50
-    dirpath: /home/mnt/rz_mnt/depth-face-mae/checkpoints
+    dirpath: /home/mnt/rz_mnt/depth-face-mae/checkpoints/pretraining
     filename: "{epoch:02d}-{global_step}"
+    save_top_k: -1
   args:
     devices: [3]
     <<: *epochs

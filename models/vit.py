@@ -26,7 +26,7 @@ class ViTForCls(nn.Module):
     def __init__(self, img_size=224, patch_size=16, in_chans=3,
                  embed_dim=1024, depth=24, num_heads=16,
                  mlp_ratio=4., norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                 num_classes=509, cls_dropout=0.9, **kwargs):
+                 num_classes=509, cls_dropout=0.9, drop_path=0., **kwargs):
         super().__init__()
         # --------------------------------------------------------------------------
         # ViT encoder specifics
@@ -37,7 +37,7 @@ class ViTForCls(nn.Module):
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim), requires_grad=False)  # fixed sin-cos embedding
 
         self.blocks = nn.ModuleList([
-            Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, norm_layer=norm_layer)
+            Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, norm_layer=norm_layer, drop_path=drop_path)
             for i in range(depth)])
         self.norm = norm_layer(embed_dim)
         # --------------------------------------------------------------------------

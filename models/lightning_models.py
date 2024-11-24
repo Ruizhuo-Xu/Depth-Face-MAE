@@ -5,13 +5,15 @@ import timm.optim.optim_factory as optim_factory
 
 from .models import make, register
 from .util import optimizer, gallery, lr_sched
+from .util.load_checkpoint import load_checkpoint
 
 lock3dface_subsets = ["NU", "FE", "PS", "OC", "TM"]
 
 @register("ModelForCls")
 class ModelForCls(LightningModule):
     def __init__(self, model_spec, optimizer_spec, num_classes,
-                 lr_sched_spec=None, steps_per_epoch=None, *args, **kwargs):
+                 lr_sched_spec=None, steps_per_epoch=None,
+                 ckpt_spec=None, *args, **kwargs):
         super().__init__()
         self.model = make(model_spec)
         self.optimizer_spec = optimizer_spec
@@ -25,6 +27,8 @@ class ModelForCls(LightningModule):
         if self.kwargs.get("is_lock3dface", False):
             for k in lock3dface_subsets:
                 self.metrics[f"{k}_accuracy"] = Accuracy(task="multiclass", num_classes=num_classes)
+        if ckpt_spec is not None:
+            load_checkpoint(self.model, **ckpt_spec)
         
     def training_step(self, batch, batch_idx):
         x, label, _ = batch
@@ -71,7 +75,8 @@ class ModelForCls(LightningModule):
 @register("ModelForMAE")
 class ModelForMAE(LightningModule):
     def __init__(self, model_spec, optimizer_spec, mask_ratio,
-                 lr_sched_spec=None, steps_per_epoch=None, *args, **kwargs):
+                 lr_sched_spec=None, steps_per_epoch=None,
+                 ckpt_spec=None, *args, **kwargs):
         super().__init__()
         self.model = make(model_spec)
         self.optimizer_spec = optimizer_spec
@@ -79,6 +84,8 @@ class ModelForMAE(LightningModule):
         self.kwargs = kwargs
         self.lr_sched_spec = lr_sched_spec
         self.steps_per_epoch = steps_per_epoch
+        if ckpt_spec is not None:
+            load_checkpoint(self.model, **ckpt_spec)
         
     def training_step(self, batch, batch_idx):
         x, label, _ = batch

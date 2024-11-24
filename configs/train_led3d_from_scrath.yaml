@@ -7,6 +7,9 @@ epochs: &epochs
 lr_cfg: &lr
   lr: 1.e-4
 
+exp_name: &exp_name
+  name: led3d_train_from_scratch
+
 dataset:
   train_set:
     name: ImgDataset
@@ -50,7 +53,7 @@ model:
 
 trainer:
   wandb_logger:
-    name: vit_from_scratch
+    <<: *exp_name
     project: Depth-Face-MAE
   checkpoint:
     every_n_epochs: 10

@@ -17,6 +17,7 @@ import torch.nn as nn
 from timm.models.vision_transformer import PatchEmbed, Block
 
 from .util.pos_embed import get_2d_sincos_pos_embed
+from .util.depth_map_utils import batch_calc_normal_map
 from .models import register
 
 @register("MAE-ViT")
@@ -27,7 +28,7 @@ class MaskedAutoencoderViT(nn.Module):
                  embed_dim=1024, depth=24, num_heads=16,
                  decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
                  mlp_ratio=4., norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                 norm_pix_loss=False, **kwargs):
+                 norm_pix_loss=False, drop_path=0., pred_normal_map=False, **kwargs):
         super().__init__()
 
         # --------------------------------------------------------------------------
@@ -39,7 +40,7 @@ class MaskedAutoencoderViT(nn.Module):
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim), requires_grad=False)  # fixed sin-cos embedding
 
         self.blocks = nn.ModuleList([
-            Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, norm_layer=norm_layer)
+            Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, norm_layer=norm_layer, drop_path=drop_path)
             for i in range(depth)])
         self.norm = norm_layer(embed_dim)
         # --------------------------------------------------------------------------
@@ -57,7 +58,9 @@ class MaskedAutoencoderViT(nn.Module):
             for i in range(decoder_depth)])
 
         self.decoder_norm = norm_layer(decoder_embed_dim)
-        self.decoder_pred = nn.Linear(decoder_embed_dim, patch_size**2 * in_chans, bias=True) # decoder to patch
+        self.pred_normal_map = pred_normal_map
+        pred_pix_chans = in_chans if not pred_normal_map else 3
+        self.decoder_pred = nn.Linear(decoder_embed_dim, patch_size**2 * pred_pix_chans, bias=True) # decoder to patch
         # --------------------------------------------------------------------------
 
         self.norm_pix_loss = norm_pix_loss
@@ -99,6 +102,8 @@ class MaskedAutoencoderViT(nn.Module):
         imgs: (N, C, H, W)
         x: (N, L, patch_size**2 *C)
         """
+        if self.pred_normal_map:
+            imgs = batch_calc_normal_map(imgs, 0, 1)
         c = imgs.shape[1]
         p = self.patch_embed.patch_size[0]
         assert imgs.shape[2] == imgs.shape[3] and imgs.shape[2] % p == 0
@@ -209,7 +214,6 @@ class MaskedAutoencoderViT(nn.Module):
             mean = target.mean(dim=-1, keepdim=True)
             var = target.var(dim=-1, keepdim=True)
             target = (target - mean) / (var + 1.e-6)**.5
-
         loss = (pred - target) ** 2
         loss = loss.mean(dim=-1)  # [N, L], mean loss per patch
 
