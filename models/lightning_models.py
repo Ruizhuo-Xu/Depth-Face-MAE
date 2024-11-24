@@ -1,6 +1,7 @@
 import torch.nn as nn
 from lightning import LightningModule
 from torchmetrics.classification import Accuracy
+import timm.optim.optim_factory as optim_factory
 
 from .models import make, register
 from .util import optimizer, gallery, lr_sched
@@ -56,7 +57,42 @@ class ModelForCls(LightningModule):
         return None
     
     def configure_optimizers(self):
-        optim = optimizer.make_optimizer(self.parameters(), self.optimizer_spec)
+        if "weight_decay" in self.optimizer_spec["args"]:
+            param_groups = optim_factory.param_groups_weight_decay(self, self.optimizer_spec["args"]["weight_decay"])
+            self.optimizer_spec["args"].pop("weight_decay")
+        optim = optimizer.make_optimizer(param_groups, self.optimizer_spec)
+        self.lr_scheduler = None
+        if self.lr_sched_spec is not None:
+            self.lr_sched_spec["args"].update({"steps_per_epoch": self.steps_per_epoch})
+            self.lr_scheduler = lr_sched.make_lr_scheduler(optim, self.lr_sched_spec)
+        return optim
+
+
+@register("ModelForMAE")
+class ModelForMAE(LightningModule):
+    def __init__(self, model_spec, optimizer_spec, mask_ratio,
+                 lr_sched_spec=None, steps_per_epoch=None, *args, **kwargs):
+        super().__init__()
+        self.model = make(model_spec)
+        self.optimizer_spec = optimizer_spec
+        self.mask_ratio = mask_ratio
+        self.kwargs = kwargs
+        self.lr_sched_spec = lr_sched_spec
+        self.steps_per_epoch = steps_per_epoch
+        
+    def training_step(self, batch, batch_idx):
+        x, label, _ = batch
+        loss, preds = self.model(x, self.mask_ratio)
+        self.log("train/loss", loss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
+        if self.lr_scheduler is not None:
+            self.lr_scheduler.step(self.global_step)
+        return loss
+    
+    def configure_optimizers(self):
+        if "weight_decay" in self.optimizer_spec["args"]:
+            param_groups = optim_factory.param_groups_weight_decay(self, self.optimizer_spec["args"]["weight_decay"])
+            self.optimizer_spec["args"].pop("weight_decay")
+        optim = optimizer.make_optimizer(param_groups, self.optimizer_spec)
         self.lr_scheduler = None
         if self.lr_sched_spec is not None:
             self.lr_sched_spec["args"].update({"steps_per_epoch": self.steps_per_epoch})

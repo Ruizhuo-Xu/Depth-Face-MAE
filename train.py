@@ -15,9 +15,11 @@ seed_everything(42, workers=True)
 
 def build_dataloader(cfg):
     train_set = datasets.make(cfg["train_set"])
-    val_set = datasets.make(cfg["val_set"])
     train_loader = DataLoader(train_set, batch_size=cfg["batch_size"], shuffle=True, num_workers=cfg["num_workers"])
-    val_loader = DataLoader(val_set, batch_size=cfg["batch_size"], shuffle=False, num_workers=cfg["num_workers"])
+    val_loader = None
+    if cfg.get("val_set", None):
+        val_set = datasets.make(cfg["val_set"])
+        val_loader = DataLoader(val_set, batch_size=cfg["batch_size"], shuffle=False, num_workers=cfg["num_workers"])
     return train_loader, val_loader
 
 def main(cfg):
