@@ -1,13 +1,22 @@
+path: &data_path
+  anno_file: ./data/lock3dface.json
+
+epochs: &epochs
+  max_epochs: 50
+
+lr_cfg: &lr
+  lr: 1.e-4
+
 dataset:
   train_set:
     name: ImgDataset
     args: 
-      anno_file: ./data/lock3dface.json
+      <<: *data_path
       split: train
   val_set:
     name: ImgDataset
     args:
-      anno_file:  ./data/lock3dface.json
+      <<: *data_path
       split: val
       test_mode: True
   batch_size: 1024
@@ -25,16 +34,23 @@ model:
     optimizer_spec:
       name: adamw
       args: 
-        lr: 1.e-4
+        <<: *lr
         weight_decay: 0.05
+    lr_sched_spec:
+      name: CosineDecayWithWarmup
+      args:
+        warmup_fraction: 0.05
+        <<: *epochs
+        <<: *lr
+        min_lr: 1.e-7
     num_classes: 509
     validation_on_gallery: True
     is_lock3dface: True
-    gallery_path:  ./data/lock3dface.json
+    <<:  *data_path
 
 trainer:
   wandb_logger:
-    name: led3d_from_scratch
+    name: vit_from_scratch
     project: Depth-Face-MAE
   checkpoint:
     every_n_epochs: 10
@@ -42,7 +58,7 @@ trainer:
     filename: "{epoch:02d}-{global_step}"
   args:
     devices: [3]
-    max_epochs: 50
+    <<: *epochs
     log_every_n_steps: 10
     check_val_every_n_epoch: 1
     precision: 16-mixed
