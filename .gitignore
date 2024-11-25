@@ -165,3 +165,4 @@ temp/
 lightning_logs/
 wandb/
 Depth-Face-MAE
+data/lock3dface_and_bfm_large.json

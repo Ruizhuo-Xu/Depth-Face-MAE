@@ -4,7 +4,7 @@ from torchmetrics.classification import Accuracy
 import timm.optim.optim_factory as optim_factory
 
 from .models import make, register
-from .util import optimizer, gallery, lr_sched
+from .util import optimizer, gallery, lr_sched, lr_decay
 from .util.load_checkpoint import load_checkpoint
 
 lock3dface_subsets = ["NU", "FE", "PS", "OC", "TM"]
@@ -13,7 +13,7 @@ lock3dface_subsets = ["NU", "FE", "PS", "OC", "TM"]
 class ModelForCls(LightningModule):
     def __init__(self, model_spec, optimizer_spec, num_classes,
                  lr_sched_spec=None, steps_per_epoch=None,
-                 ckpt_spec=None, *args, **kwargs):
+                 ckpt_spec=None, lr_decay=None, *args, **kwargs):
         super().__init__()
         self.model = make(model_spec)
         self.optimizer_spec = optimizer_spec
@@ -21,6 +21,7 @@ class ModelForCls(LightningModule):
         self.kwargs = kwargs
         self.lr_sched_spec = lr_sched_spec
         self.steps_per_epoch = steps_per_epoch
+        self.lr_decay = lr_decay
         self.train_acc = Accuracy(task="multiclass", num_classes=num_classes)
         self.metrics = nn.ParameterDict()
         self.metrics["total_accuracy"] = Accuracy(task="multiclass", num_classes=num_classes)
@@ -62,8 +63,12 @@ class ModelForCls(LightningModule):
     
     def configure_optimizers(self):
         if "weight_decay" in self.optimizer_spec["args"]:
-            param_groups = optim_factory.param_groups_weight_decay(self, self.optimizer_spec["args"]["weight_decay"])
-            self.optimizer_spec["args"].pop("weight_decay")
+            wd = self.optimizer_spec["args"].pop("weight_decay")
+            if self.lr_decay is not None:
+                param_groups = lr_decay.param_groups_lrd(self, wd, layer_decay=self.lr_decay)
+            else:
+                param_groups = optim_factory.param_groups_weight_decay(self, wd)
+            
         optim = optimizer.make_optimizer(param_groups, self.optimizer_spec)
         self.lr_scheduler = None
         if self.lr_sched_spec is not None:

@@ -8,7 +8,7 @@ lr_cfg: &lr
   lr: 1.e-4
 
 exp_name: &exp_name
-  name: vit_mae_finetuning_drp0.3
+  name: vit_mae_finetuning_normal_map_400ep
 
 dataset:
   train_set:
@@ -53,8 +53,9 @@ model:
         <<: *epochs
         <<: *lr
         min_lr: 1.e-7
+    # lr_decay: 0.85
     ckpt_spec:
-      checkpoint_path: /home/mnt/rz_mnt/depth-face-mae/checkpoints/epoch=249-global_step=0.ckpt
+      checkpoint_path: /home/mnt/rz_mnt/depth-face-mae/checkpoints/pretraining/vit_mae_pretraining_normal_map_800ep/epoch=199-global_step=0.ckpt
       param_mapping: ["model.->"]
     num_classes: 509
     validation_on_gallery: True

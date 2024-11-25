@@ -59,7 +59,7 @@ class MaskedAutoencoderViT(nn.Module):
 
         self.decoder_norm = norm_layer(decoder_embed_dim)
         self.pred_normal_map = pred_normal_map
-        pred_pix_chans = in_chans if not pred_normal_map else 3
+        pred_pix_chans = in_chans if not pred_normal_map else 4  # depth + normal
         self.decoder_pred = nn.Linear(decoder_embed_dim, patch_size**2 * pred_pix_chans, bias=True) # decoder to patch
         # --------------------------------------------------------------------------
 
@@ -103,7 +103,8 @@ class MaskedAutoencoderViT(nn.Module):
         x: (N, L, patch_size**2 *C)
         """
         if self.pred_normal_map:
-            imgs = batch_calc_normal_map(imgs, 0, 1)
+            _imgs = batch_calc_normal_map(imgs, 0, 1)
+            imgs = torch.concat([imgs, _imgs], dim=1)
         c = imgs.shape[1]
         p = self.patch_embed.patch_size[0]
         assert imgs.shape[2] == imgs.shape[3] and imgs.shape[2] % p == 0
