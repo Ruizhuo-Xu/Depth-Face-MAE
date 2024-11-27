@@ -1,25 +1,19 @@
-path: &data_path
-  anno_file: ./data/lock3dface.json
-
-epochs: &epochs
-  max_epochs: 50
-
-lr_cfg: &lr
-  lr: 1.e-4
-
-exp_name: &exp_name
-  name: vit_train_from_scratch
+anno_file: ./data/lock3dface.json
+max_epochs: 30
+lr: 1.e-4
+exp_name: vit_mae_finetuning_normal_map_400ep
+devices: [3]
 
 dataset:
   train_set:
     name: ImgDataset
     args: 
-      <<: *data_path
+      anno_file: ${anno_file}
       split: train
   val_set:
     name: ImgDataset
     args:
-      <<: *data_path
+      anno_file: ${anno_file}
       split: val
       test_mode: True
   batch_size: 1024
@@ -43,31 +37,31 @@ model:
     optimizer_spec:
       name: adamw
       args: 
-        <<: *lr
+        lr: ${lr}
         weight_decay: 0.05
     lr_sched_spec:
       name: CosineDecayWithWarmup
       args:
         warmup_fraction: 0.05
-        <<: *epochs
-        <<: *lr
+        max_epochs: ${max_epochs}
+        lr: ${lr}
         min_lr: 1.e-7
-    num_classes: 509
+    num_classes: ${model.args.model_spec.args.num_classes}
     validation_on_gallery: True
     is_lock3dface: True
-    <<:  *data_path
+    anno_file: ${anno_file}
 
 trainer:
   wandb_logger:
-    <<: *exp_name
+    name: ${exp_name}
     project: Depth-Face-MAE
   checkpoint:
     every_n_epochs: 10
     dirpath: /home/mnt/rz_mnt/depth-face-mae/checkpoints
     filename: "{epoch:02d}-{global_step}"
   args:
-    devices: [3]
-    <<: *epochs
+    devices: ${devices}
+    max_epochs: ${max_epochs}
     log_every_n_steps: 10
     check_val_every_n_epoch: 1
     precision: 16-mixed

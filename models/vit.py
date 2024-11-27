@@ -9,14 +9,15 @@
 # DeiT: https://github.com/facebookresearch/deit
 # --------------------------------------------------------
 
+import random
 from functools import partial
 
 import torch
 import torch.nn as nn
-
 from timm.models.vision_transformer import PatchEmbed, Block
 
 from .util.pos_embed import get_2d_sincos_pos_embed
+from .arcface import ArcMarginProduct
 from .models import register
 
 @register("ViT")
@@ -26,7 +27,8 @@ class ViTForCls(nn.Module):
     def __init__(self, img_size=224, patch_size=16, in_chans=3,
                  embed_dim=1024, depth=24, num_heads=16,
                  mlp_ratio=4., norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                 num_classes=509, cls_dropout=0.9, drop_path=0., **kwargs):
+                 num_classes=509, cls_dropout=0.9, drop_path=0.,
+                 mask_ratio=None, arcface_args=None, **kwargs):
         super().__init__()
         # --------------------------------------------------------------------------
         # ViT encoder specifics
@@ -44,11 +46,16 @@ class ViTForCls(nn.Module):
         
         # --------------------------------------------------------------------------
         # Classification specifics
-        self.head = nn.Linear(embed_dim, num_classes) if num_classes > 0 else nn.Identity()
+        self.arcface_args = arcface_args
+        if not arcface_args:
+            self.head = nn.Linear(embed_dim, num_classes) if num_classes > 0 else nn.Identity()
+        else:
+            self.head = ArcMarginProduct(**arcface_args)
         self.drop = nn.Dropout(cls_dropout)
         self.loss = nn.CrossEntropyLoss()
         # --------------------------------------------------------------------------
 
+        self.mask_ratio = mask_ratio
         self.initialize_weights()
 
     def initialize_weights(self):
@@ -77,12 +84,42 @@ class ViTForCls(nn.Module):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
 
-    def forward_encoder(self, x):
+    def random_masking(self, x, mask_ratio):
+        """
+        Perform per-sample random masking by per-sample shuffling.
+        Per-sample shuffling is done by argsort random noise.
+        x: [N, L, D], sequence
+        """
+        N, L, D = x.shape  # batch, length, dim
+        len_keep = int(L * (1 - mask_ratio))
+        
+        noise = torch.rand(N, L, device=x.device)  # noise in [0, 1]
+        
+        # sort noise for each sample
+        ids_shuffle = torch.argsort(noise, dim=1)  # ascend: small is keep, large is remove
+        ids_restore = torch.argsort(ids_shuffle, dim=1)
+
+        # keep the first subset
+        ids_keep = ids_shuffle[:, :len_keep]
+        x_masked = torch.gather(x, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, D))
+
+        # generate the binary mask: 0 is keep, 1 is remove
+        mask = torch.ones([N, L], device=x.device)
+        mask[:, :len_keep] = 0
+        # unshuffle to get the binary mask
+        mask = torch.gather(mask, dim=1, index=ids_restore)
+
+        return x_masked, mask, ids_restore
+
+    def forward_encoder(self, x, mask_ratio):
         # embed patches
         x = self.patch_embed(x)
 
         # add pos embed w/o cls token
         x = x + self.pos_embed[:, 1:, :]
+
+        # masking: length -> length * mask_ratio
+        x, mask, ids_restore = self.random_masking(x, mask_ratio)
 
         # append cls token
         cls_token = self.cls_token + self.pos_embed[:, :1, :]
@@ -105,11 +142,18 @@ class ViTForCls(nn.Module):
         return loss
 
     def forward(self, imgs, target=None, only_return_feats=False):
-        latent = self.forward_encoder(imgs)[:, 0]
+        if self.mask_ratio is not None and self.training:
+            mask_ratio = random.uniform(0.0, self.mask_ratio)
+        else:
+            mask_ratio = 0.0
+        latent = self.forward_encoder(imgs, mask_ratio)[:, 0]
         if only_return_feats:
             return latent
         latent = self.drop(latent)
-        pred = self.head(latent)
+        if not self.arcface_args:
+            pred = self.head(latent)
+        else:
+            pred = self.head(latent, target)
         loss = self.forward_loss(pred, target)
         return loss, pred
 

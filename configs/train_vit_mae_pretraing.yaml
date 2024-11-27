@@ -1,21 +1,14 @@
-path: &data_path
-  # anno_file: ./data/lock3dface.json
-  anno_file: ./data/lock3dface_and_bfm_large.json
-
-epochs: &epochs
-  max_epochs: 20
-
-lr_cfg: &lr
-  lr: 6.e-4
-
-exp_name: &exp_name
-  name: vit_mae_tiny_pretraining_lock3d_and_bfm_pred_normal_and_depth
+anno_file: ./data/lock3dface.json
+max_epochs: 30
+lr: 1.e-4
+exp_name: vit_mae_finetuning_normal_map_400ep
+devices: [3]
 
 dataset:
   train_set:
     name: ImgDataset
     args: 
-      <<: *data_path
+      anno_file: ${anno_file}
       split: train
   # val_set:
   #   name: ImgDataset
@@ -23,8 +16,8 @@ dataset:
   #     <<: *data_path
   #     split: val
   #     test_mode: True
-  batch_size: 512
-  num_workers: 16
+  batch_size: 1024
+  num_workers: 64
 
 model:
   name: ModelForMAE
@@ -45,31 +38,32 @@ model:
         decoder_num_heads: 8
         norm_pix_loss: True
         pred_normal_map: True
+        drop_path: 0.0
     optimizer_spec:
       name: adamw
       args: 
-        <<: *lr
+        lr: ${lr}
         weight_decay: 0.05
         betas: [0.9, 0.95]
     lr_sched_spec:
       name: CosineDecayWithWarmup
       args:
         warmup_fraction: 0.05
-        <<: *epochs
-        <<: *lr
+        max_epochs: ${max_epochs}
+        lr: ${lr}
         min_lr: 1.e-9
 
 trainer:
-  # wandb_logger:
-  #   <<: *exp_name
-  #   project: Depth-Face-MAE
+  wandb_logger:
+    name: ${exp_name}
+    project: Depth-Face-MAE
   checkpoint:
-    every_n_epochs: 50
+    every_n_epochs: 5
     dirpath: /home/mnt/rz_mnt/depth-face-mae/checkpoints/pretraining
     filename: "{epoch:02d}-{global_step}"
     save_top_k: -1
   args:
-    devices: [0, 1]
-    <<: *epochs
+    devices: ${devices}
+    max_epochs: ${max_epochs}
     log_every_n_steps: 10
     precision: 16-mixed

@@ -1,6 +1,7 @@
 import os
 import yaml
 import argparse
+from omegaconf import OmegaConf
 
 from torch.utils.data import DataLoader
 import torch.distributed as dist
@@ -18,7 +19,8 @@ seed_everything(42, workers=True)
 
 def build_dataloader(cfg):
     train_set = datasets.make(cfg["train_set"])
-    train_loader = DataLoader(train_set, batch_size=cfg["batch_size"], shuffle=True, num_workers=cfg["num_workers"])
+    train_loader = DataLoader(train_set, batch_size=cfg["batch_size"], shuffle=True,
+                              num_workers=cfg["num_workers"], pin_memory=True, drop_last=True)
     val_loader = None
     if cfg.get("val_set", None):
         val_set = datasets.make(cfg["val_set"])
@@ -43,7 +45,7 @@ def main(cfg):
     ckpt_cfg = cfg["trainer"].get("checkpoint", None)
     if ckpt_cfg:
         if "dirpath" in ckpt_cfg:
-            ckpt_cfg["dirpath"] = os.path.join(ckpt_cfg["dirpath"], cfg["exp_name"]["name"])
+            ckpt_cfg["dirpath"] = os.path.join(ckpt_cfg["dirpath"], cfg["exp_name"])
         ckpt_callback = ModelCheckpoint(**ckpt_cfg)
         callbacks.append(ckpt_callback)
         
@@ -61,8 +63,8 @@ if __name__ == "__main__":
     parser.add_argument('--config')
     args = parser.parse_args()
     
-    with open(args.config, 'r') as f:
-        cfg = yaml.load(f, Loader=yaml.FullLoader)
-        print(f"Config file loaded: {args.config}")
+    cfg = OmegaConf.load(args.config)
+    cfg = OmegaConf.to_container(cfg, resolve=True)
+    print(cfg)
         
     main(cfg)
