@@ -1,7 +1,7 @@
-anno_file: ./data/lock3dface.json
-max_epochs: 30
-lr: 1.e-4
-exp_name: vit_mae_finetuning_normal_map_400ep
+anno_file: ./data/lock3dface_and_bfm_large.json
+max_epochs: 20
+lr: 6.e-4
+exp_name: vit_mae_tiny_pretraining_lock3d_and_bfm_v4
 devices: [3]
 
 dataset:
@@ -10,12 +10,13 @@ dataset:
     args: 
       anno_file: ${anno_file}
       split: train
-  # val_set:
-  #   name: ImgDataset
-  #   args:
-  #     <<: *data_path
-  #     split: val
-  #     test_mode: True
+      # first_k: 10000
+  val_set:
+    name: ImgDataset
+    args:
+      anno_file: ${anno_file}
+      split: val
+      test_mode: True
   batch_size: 1024
   num_workers: 64
 
@@ -39,6 +40,15 @@ model:
         norm_pix_loss: True
         pred_normal_map: True
         drop_path: 0.0
+        id_loss_args:
+          feat_dim: 128
+          dropout: 0.0
+          num_classes: ${model.args.num_classes}
+          arcface_args:
+            in_features: ${model.args.model_spec.args.id_loss_args.feat_dim}
+            out_features: ${model.args.num_classes}
+            s: 30.0
+            m: 0.0
     optimizer_spec:
       name: adamw
       args: 
@@ -52,6 +62,10 @@ model:
         max_epochs: ${max_epochs}
         lr: ${lr}
         min_lr: 1.e-9
+    num_classes: 10600
+    validation_on_gallery: True
+    is_lock3dface: True
+    anno_file: ${anno_file}
 
 trainer:
   wandb_logger:
@@ -60,7 +74,7 @@ trainer:
   checkpoint:
     every_n_epochs: 5
     dirpath: /home/mnt/rz_mnt/depth-face-mae/checkpoints/pretraining
-    filename: "{epoch:02d}-{global_step}"
+    # filename: "{epoch:02d}-{global_step}"
     save_top_k: -1
   args:
     devices: ${devices}

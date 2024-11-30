@@ -80,7 +80,7 @@ class ModelForCls(LightningModule):
 @register("ModelForMAE")
 class ModelForMAE(LightningModule):
     def __init__(self, model_spec, optimizer_spec, mask_ratio,
-                 lr_sched_spec=None, steps_per_epoch=None,
+                 num_classes, lr_sched_spec=None, steps_per_epoch=None,
                  ckpt_spec=None, *args, **kwargs):
         super().__init__()
         self.model = make(model_spec)
@@ -89,16 +89,49 @@ class ModelForMAE(LightningModule):
         self.kwargs = kwargs
         self.lr_sched_spec = lr_sched_spec
         self.steps_per_epoch = steps_per_epoch
+        
+        self.train_acc = Accuracy(task="multiclass", num_classes=num_classes)
+        self.metrics = nn.ParameterDict()
+        self.metrics["total_accuracy"] = Accuracy(task="multiclass", num_classes=num_classes)
+        if self.kwargs.get("is_lock3dface", False):
+            for k in lock3dface_subsets:
+                self.metrics[f"{k}_accuracy"] = Accuracy(task="multiclass", num_classes=num_classes)
+        
         if ckpt_spec is not None:
             load_checkpoint(self.model, **ckpt_spec)
         
     def training_step(self, batch, batch_idx):
         x, label, _ = batch
-        loss, preds = self.model(x, self.mask_ratio)
-        self.log("train/loss", loss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
+        loss_dict = self.model(x, self.mask_ratio, label)
+        loss = None
+        for k, v in loss_dict.items():
+            if k == "loss":
+                loss = v
+            self.log(f"train/{k}", v, prog_bar=True, logger=True, on_step=True, on_epoch=True)
+        # self.log("train/loss", loss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
         if self.lr_scheduler is not None:
             self.lr_scheduler.step(self.global_step)
         return loss
+    
+    def on_validation_epoch_start(self) -> None:
+        self.gallery_feats, self.gallery_labels = \
+            gallery.extract_gallery_features(self.model, self.kwargs["anno_file"], self.device)
+    
+    def validation_step(self, batch, batch_idx):
+        x, label, infos = batch
+        if self.kwargs.get("validation_on_gallery", False):
+            feats = self.model(x, only_return_feats=True)
+            is_lock3dface = self.kwargs.get("is_lock3dface", False)
+            results = gallery.evaluation(feats, label, self.gallery_feats, self.gallery_labels,
+                                         self.metrics, is_lock3dface, img_infos=infos)
+            for k, v in self.metrics.items():
+                self.log(f"val/{k}", v, prog_bar=True, logger=True,
+                         on_step=False, on_epoch=True)
+        else:
+            loss, preds = self.model(x, label)
+            self.log("val/loss", loss, prog_bar=True, logger=True)
+            return loss
+        return None
     
     def configure_optimizers(self):
         if "weight_decay" in self.optimizer_spec["args"]:

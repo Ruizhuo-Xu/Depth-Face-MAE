@@ -19,6 +19,7 @@ from timm.models.vision_transformer import PatchEmbed, Block
 from .util.pos_embed import get_2d_sincos_pos_embed
 from .util.depth_map_utils import batch_calc_normal_map
 from .models import register
+from .arcface import ArcMarginProduct
 
 @register("MAE-ViT")
 class MaskedAutoencoderViT(nn.Module):
@@ -28,7 +29,8 @@ class MaskedAutoencoderViT(nn.Module):
                  embed_dim=1024, depth=24, num_heads=16,
                  decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
                  mlp_ratio=4., norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                 norm_pix_loss=False, drop_path=0., pred_normal_map=False, **kwargs):
+                 norm_pix_loss=False, drop_path=0., pred_normal_map=False,
+                 id_loss_args: dict=None, **kwargs):
         super().__init__()
 
         # --------------------------------------------------------------------------
@@ -61,6 +63,23 @@ class MaskedAutoencoderViT(nn.Module):
         self.pred_normal_map = pred_normal_map
         pred_pix_chans = in_chans if not pred_normal_map else 4  # depth + normal
         self.decoder_pred = nn.Linear(decoder_embed_dim, patch_size**2 * pred_pix_chans, bias=True) # decoder to patch
+        # --------------------------------------------------------------------------
+        
+        # --------------------------------------------------------------------------
+        # id loss
+        self.id_loss_args = id_loss_args
+        self.with_id_loss = False
+        if self.id_loss_args is not None:
+            self.with_id_loss = True
+            self.proj = nn.Linear(embed_dim, id_loss_args['feat_dim'])
+            self.drop = nn.Dropout(id_loss_args.get('dropout', 0.0))
+            if self.id_loss_args.get("arcface_args", None):
+                self.using_arcface = True
+                self.cls_head = ArcMarginProduct(**self.id_loss_args["arcface_args"])
+            else:
+                self.using_arcface = False
+                self.cls_head = nn.Linear(embed_dim, id_loss_args['num_classes'])
+            self.id_loss = nn.CrossEntropyLoss()
         # --------------------------------------------------------------------------
 
         self.norm_pix_loss = norm_pix_loss
@@ -157,6 +176,9 @@ class MaskedAutoencoderViT(nn.Module):
         return x_masked, mask, ids_restore
 
     def forward_encoder(self, x, mask_ratio):
+        # if self.pred_normal_map:
+        #     normal = batch_calc_normal_map(x, 0, 1)
+        #     x = torch.concat([x, normal], dim=1)
         # embed patches
         x = self.patch_embed(x)
 
@@ -204,7 +226,7 @@ class MaskedAutoencoderViT(nn.Module):
 
         return x
 
-    def forward_loss(self, imgs, pred, mask):
+    def forward_mae_loss(self, imgs, pred, mask):
         """
         imgs: [N, C, H, W]
         pred: [N, L, p*p*3]
@@ -220,12 +242,38 @@ class MaskedAutoencoderViT(nn.Module):
 
         loss = (loss * mask).sum() / mask.sum()  # mean loss on removed patches
         return loss
+    
+    def forward_id_loss(self, latent, target):
+        if self.using_arcface:
+            logits = self.cls_head(latent, target)
+        else:
+            logits = self.cls_head(latent)
+        loss = self.id_loss(logits, target)
+        return loss
+    
+    def get_feat_vector(self, latent):
+        x = latent[:, 0]
+        x = self.proj(x)
+        x = self.drop(x)
+        return x
 
-    def forward(self, imgs, mask_ratio=0.75):
+    def forward(self, imgs, mask_ratio=0.75, target=None, only_return_feats=False):
+        loss = 0.0
+        return_dict = {}
         latent, mask, ids_restore = self.forward_encoder(imgs, mask_ratio)
+        if self.with_id_loss:
+            feat = self.get_feat_vector(latent)
+            if only_return_feats:
+                return feat
+            id_loss = self.forward_id_loss(feat, target)
+            return_dict['id_loss'] = id_loss
+            loss += id_loss
         pred = self.forward_decoder(latent, ids_restore)  # [N, L, p*p*c]
-        loss = self.forward_loss(imgs, pred, mask)
-        return loss, pred
+        mae_loss = self.forward_mae_loss(imgs, pred, mask)
+        return_dict['mae_loss'] = mae_loss
+        loss += mae_loss
+        return_dict['loss'] = loss
+        return return_dict
 
 
 def mae_vit_base_patch16_dec512d8b(**kwargs):

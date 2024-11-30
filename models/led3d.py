@@ -74,3 +74,9 @@ class Led3D(nn.Module):
             return loss, output
         else:
             return out
+        
+if __name__ == '__main__':
+    model = Led3D()
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    from torchinfo import summary
+    summary(model, (2, 1, 128, 128), device=device)

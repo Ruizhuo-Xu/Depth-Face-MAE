@@ -19,6 +19,7 @@ from timm.models.vision_transformer import PatchEmbed, Block
 from .util.pos_embed import get_2d_sincos_pos_embed
 from .arcface import ArcMarginProduct
 from .models import register
+from .util.depth_map_utils import batch_calc_normal_map
 
 @register("ViT")
 class ViTForCls(nn.Module):
@@ -32,6 +33,7 @@ class ViTForCls(nn.Module):
         super().__init__()
         # --------------------------------------------------------------------------
         # ViT encoder specifics
+        self.in_chans = in_chans
         self.patch_embed = PatchEmbed(img_size, patch_size, in_chans, embed_dim)
         num_patches = self.patch_embed.num_patches
 
@@ -112,6 +114,9 @@ class ViTForCls(nn.Module):
         return x_masked, mask, ids_restore
 
     def forward_encoder(self, x, mask_ratio):
+        # if self.in_chans == 4:
+        #     normal = batch_calc_normal_map(x, 0, 1)
+        #     x = torch.concat([x, normal], dim=1)
         # embed patches
         x = self.patch_embed(x)
 
