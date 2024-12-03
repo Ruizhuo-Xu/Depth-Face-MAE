@@ -39,7 +39,7 @@ def main(cfg):
         wandb_log_config(cfg, wandb_logger)
         
     train_loader, val_loader = build_dataloader(cfg["dataset"])
-    model = models.make(cfg["model"], args={"steps_per_epoch": len(train_loader)})
+    model = models.make(cfg["model"], args={"steps_per_epoch": len(train_loader) // len(cfg["devices"])})
         
     callbacks = [LearningRateMonitor(logging_interval="step")]
     ckpt_cfg = cfg["trainer"].get("checkpoint", None)

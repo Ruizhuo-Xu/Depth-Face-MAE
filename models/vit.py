@@ -28,7 +28,7 @@ class ViTForCls(nn.Module):
     def __init__(self, img_size=224, patch_size=16, in_chans=3,
                  embed_dim=1024, depth=24, num_heads=16,
                  mlp_ratio=4., norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                 num_classes=509, cls_dropout=0.9, drop_path=0.,
+                 feat_dim=128, num_classes=509, cls_dropout=0.9, drop_path=0.,
                  mask_ratio=None, arcface_args=None, **kwargs):
         super().__init__()
         # --------------------------------------------------------------------------
@@ -48,9 +48,11 @@ class ViTForCls(nn.Module):
         
         # --------------------------------------------------------------------------
         # Classification specifics
+        # self.proj = nn.Linear(embed_dim, feat_dim)
+        self.proj = nn.Identity()
         self.arcface_args = arcface_args
         if not arcface_args:
-            self.head = nn.Linear(embed_dim, num_classes) if num_classes > 0 else nn.Identity()
+            self.head = nn.Linear(feat_dim, num_classes) if num_classes > 0 else nn.Identity()
         else:
             self.head = ArcMarginProduct(**arcface_args)
         self.drop = nn.Dropout(cls_dropout)
@@ -113,7 +115,7 @@ class ViTForCls(nn.Module):
 
         return x_masked, mask, ids_restore
 
-    def forward_encoder(self, x, mask_ratio):
+    def forward_encoder(self, x, mask_ratio, return_all_cls=False):
         # if self.in_chans == 4:
         #     normal = batch_calc_normal_map(x, 0, 1)
         #     x = torch.concat([x, normal], dim=1)
@@ -132,11 +134,15 @@ class ViTForCls(nn.Module):
         x = torch.cat((cls_tokens, x), dim=1)
 
         # apply Transformer blocks
-        for blk in self.blocks:
+        latents = []
+        for idx, blk in enumerate(self.blocks):
             x = blk(x)
+            if return_all_cls and idx != len(self.blocks) - 1:
+                latents.append(x[:, 0])
         x = self.norm(x)
+        latents.append(x[:, 0])
 
-        return x
+        return latents
 
     def forward_loss(self, pred, target):
         """
@@ -151,10 +157,12 @@ class ViTForCls(nn.Module):
             mask_ratio = random.uniform(0.0, self.mask_ratio)
         else:
             mask_ratio = 0.0
-        latent = self.forward_encoder(imgs, mask_ratio)[:, 0]
+        latent = self.forward_encoder(imgs, mask_ratio, return_all_cls=True)
+        latent = torch.cat(latent[-4:], dim=1)
+        latent = self.proj(latent)
+        latent = self.drop(latent)
         if only_return_feats:
             return latent
-        latent = self.drop(latent)
         if not self.arcface_args:
             pred = self.head(latent)
         else:

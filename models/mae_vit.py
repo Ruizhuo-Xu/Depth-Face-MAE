@@ -80,6 +80,9 @@ class MaskedAutoencoderViT(nn.Module):
                 self.using_arcface = False
                 self.cls_head = nn.Linear(embed_dim, id_loss_args['num_classes'])
             self.id_loss = nn.CrossEntropyLoss()
+        else:
+            self.proj = nn.Identity()
+            self.drop = nn.Identity()
         # --------------------------------------------------------------------------
 
         self.norm_pix_loss = norm_pix_loss
@@ -186,6 +189,7 @@ class MaskedAutoencoderViT(nn.Module):
         x = x + self.pos_embed[:, 1:, :]
 
         # masking: length -> length * mask_ratio
+        mask_ratio = mask_ratio if self.training else 0.0
         x, mask, ids_restore = self.random_masking(x, mask_ratio)
 
         # append cls token
@@ -261,13 +265,13 @@ class MaskedAutoencoderViT(nn.Module):
         loss = 0.0
         return_dict = {}
         latent, mask, ids_restore = self.forward_encoder(imgs, mask_ratio)
+        feat = self.get_feat_vector(latent)
+        if only_return_feats:
+            return feat
         if self.with_id_loss:
-            feat = self.get_feat_vector(latent)
-            if only_return_feats:
-                return feat
             id_loss = self.forward_id_loss(feat, target)
             return_dict['id_loss'] = id_loss
-            loss += id_loss
+            loss += 0.1 * id_loss
         pred = self.forward_decoder(latent, ids_restore)  # [N, L, p*p*c]
         mae_loss = self.forward_mae_loss(imgs, pred, mask)
         return_dict['mae_loss'] = mae_loss

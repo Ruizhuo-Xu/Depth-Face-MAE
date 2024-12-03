@@ -1,7 +1,7 @@
-anno_file: ./data/lock3dface_and_bfm_large.json
+anno_file: ./data/bfm_large.json
 max_epochs: 20
 lr: 6.e-4
-exp_name: vit_mae_tiny_pretraining_lock3d_and_bfm_v4
+exp_name: vit_mae_tiny_pretraining_only_bfm
 devices: [3]
 
 dataset:
@@ -18,7 +18,7 @@ dataset:
       split: val
       test_mode: True
   batch_size: 1024
-  num_workers: 64
+  num_workers: 32
 
 model:
   name: ModelForMAE
@@ -40,15 +40,15 @@ model:
         norm_pix_loss: True
         pred_normal_map: True
         drop_path: 0.0
-        id_loss_args:
-          feat_dim: 128
-          dropout: 0.0
-          num_classes: ${model.args.num_classes}
-          arcface_args:
-            in_features: ${model.args.model_spec.args.id_loss_args.feat_dim}
-            out_features: ${model.args.num_classes}
-            s: 30.0
-            m: 0.0
+        # id_loss_args:
+        #   feat_dim: 128
+        #   dropout: 0.7
+        #   num_classes: ${model.args.num_classes}
+        #   arcface_args:
+        #     in_features: ${model.args.model_spec.args.id_loss_args.feat_dim}
+        #     out_features: ${model.args.num_classes}
+        #     s: 30.0
+        #     m: 0.0
     optimizer_spec:
       name: adamw
       args: 

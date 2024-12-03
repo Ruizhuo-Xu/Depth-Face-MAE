@@ -1,8 +1,8 @@
 anno_file: ./data/lock3dface.json
-max_epochs: 30
+max_epochs: 20
 lr: 1.e-4
-exp_name: vit_mae_finetuning_normal_map_400ep
-devices: [3]
+exp_name: vit_mae_finetuning_v0_fix_lr_bug_lrd0.85
+devices: [0,1,2,4]
 
 dataset:
   train_set:
@@ -16,7 +16,7 @@ dataset:
       anno_file: ${anno_file}
       split: val
       test_mode: True
-  batch_size: 512
+  batch_size: 256
   num_workers: 16
 
 model:
@@ -27,20 +27,21 @@ model:
       args:
         img_size: 128
         patch_size: 8
-        in_chans: 4
+        in_chans: 1
         embed_dim: 384
         depth: 8
         num_heads: 8
         mlp_ratio: 4
         num_classes: 509
+        feat_dim: 1536
         cls_dropout: 0.9
-        drop_path: 0.0
+        drop_path: 0.15
         mask_ratio: null
         # arcface_args:
-        #   in_features: ${model.args.model_spec.args.embed_dim}
+        #   in_features: ${model.args.model_spec.args.feat_dim}
         #   out_features: ${model.args.model_spec.args.num_classes}
         #   s: 30.0
-        #   m: 0.5
+        #   m: 0.0
     optimizer_spec:
       name: adamw
       args: 
@@ -53,9 +54,9 @@ model:
         max_epochs: ${max_epochs}
         lr: ${lr}
         min_lr: 1.e-7
-    # lr_decay: 0.85
+    lr_decay: 0.85
     ckpt_spec:
-      checkpoint_path: /home/mnt/rz_mnt/depth-face-mae/checkpoints/pretraining/vit_mae_tiny_pretraining_lock3d_and_bfm_v3/epoch=19-step=102180.ckpt
+      checkpoint_path: /home/mnt/rz_mnt/depth-face-mae/checkpoints/pretraining/vit_mae_tiny_pretraining_lock3d_and_bfm_pred_normal_and_depth_new/epoch=19-global_step=0.ckpt
       param_mapping: ["model.->"]
     num_classes: ${model.args.model_spec.args.num_classes}
     validation_on_gallery: True
@@ -63,9 +64,9 @@ model:
     anno_file: ${anno_file}
 
 trainer:
-  # wandb_logger:
-  #   name: ${exp_name}
-  #   project: Depth-Face-MAE
+  wandb_logger:
+    name: ${exp_name}
+    project: Depth-Face-MAE
   checkpoint:
     every_n_epochs: 10
     dirpath: /home/mnt/rz_mnt/depth-face-mae/checkpoints/fine_tuning
