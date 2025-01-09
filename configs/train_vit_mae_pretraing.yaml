@@ -1,8 +1,8 @@
-anno_file: ./data/bfm_large.json
+anno_file: ./data/lock3dface.json
 max_epochs: 20
 lr: 6.e-4
-exp_name: vit_mae_tiny_pretraining_only_bfm
-devices: [3]
+exp_name: vit_mae_tiny_pretraining_2_stage_lock3dface_mask0.5_drp0.15_normal_mask_5.0
+devices: [0,1,2,4]
 
 dataset:
   train_set:
@@ -17,8 +17,8 @@ dataset:
       anno_file: ${anno_file}
       split: val
       test_mode: True
-  batch_size: 1024
-  num_workers: 32
+  batch_size: 256
+  num_workers: 16
 
 model:
   name: ModelForMAE
@@ -39,7 +39,10 @@ model:
         decoder_num_heads: 8
         norm_pix_loss: True
         pred_normal_map: True
-        drop_path: 0.0
+        drop_path: 0.15
+        drop_ratio: 0.0
+        normal_guided_random_masking:
+          tau: 5.0
         # id_loss_args:
         #   feat_dim: 128
         #   dropout: 0.7
@@ -66,6 +69,9 @@ model:
     validation_on_gallery: True
     is_lock3dface: True
     anno_file: ${anno_file}
+    ckpt_spec:
+      checkpoint_path: /home/mnt/rz_mnt/depth-face-mae/checkpoints/pretraining/vit_mae_tiny_pretraining_only_bfm/epoch=19-step=96080.ckpt
+      param_mapping: ["model.->"]
 
 trainer:
   wandb_logger:

@@ -13,6 +13,7 @@ from functools import partial
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from timm.models.vision_transformer import PatchEmbed, Block
 
@@ -29,8 +30,8 @@ class MaskedAutoencoderViT(nn.Module):
                  embed_dim=1024, depth=24, num_heads=16,
                  decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
                  mlp_ratio=4., norm_layer=partial(nn.LayerNorm, eps=1e-6),
-                 norm_pix_loss=False, drop_path=0., pred_normal_map=False,
-                 id_loss_args: dict=None, **kwargs):
+                 norm_pix_loss=False, drop_path=0., drop_ratio=0., pred_normal_map=False,
+                 id_loss_args: dict=None, normal_guided_random_masking=None, **kwargs):
         super().__init__()
 
         # --------------------------------------------------------------------------
@@ -45,6 +46,7 @@ class MaskedAutoencoderViT(nn.Module):
             Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, norm_layer=norm_layer, drop_path=drop_path)
             for i in range(depth)])
         self.norm = norm_layer(embed_dim)
+        self.enc_drop = nn.Dropout(drop_ratio)
         # --------------------------------------------------------------------------
 
         # --------------------------------------------------------------------------
@@ -84,7 +86,10 @@ class MaskedAutoencoderViT(nn.Module):
             self.proj = nn.Identity()
             self.drop = nn.Identity()
         # --------------------------------------------------------------------------
-
+        if normal_guided_random_masking is not None:
+            self.masking_tau = normal_guided_random_masking["tau"]
+        else:
+            self.masking_tau = None
         self.norm_pix_loss = norm_pix_loss
 
         self.initialize_weights()
@@ -136,6 +141,22 @@ class MaskedAutoencoderViT(nn.Module):
         x = torch.einsum('nchpwq->nhwpqc', x)
         x = x.reshape(shape=(imgs.shape[0], h * w, p**2 * c))
         return x
+    
+    def normal_patchify(self, imgs):
+        """
+        imgs: (N, C, H, W)
+        x: (N, L, patch_size**2 *C)
+        """
+        imgs = batch_calc_normal_map(imgs, 0, 1)
+        c = imgs.shape[1]
+        p = self.patch_embed.patch_size[0]
+        assert imgs.shape[2] == imgs.shape[3] and imgs.shape[2] % p == 0
+
+        h = w = imgs.shape[2] // p
+        x = imgs.reshape(shape=(imgs.shape[0], c, h, p, w, p))
+        x = torch.einsum('nchpwq->nhwpqc', x)
+        x = x.reshape(shape=(imgs.shape[0], h * w, p**2, c))
+        return x
 
     def unpatchify(self, x):
         """
@@ -177,12 +198,44 @@ class MaskedAutoencoderViT(nn.Module):
         mask = torch.gather(mask, dim=1, index=ids_restore)
 
         return x_masked, mask, ids_restore
+    
+    def normal_guided_random_masking(self, x, x_normal, mask_ratio, tau):
+        """
+        Perform per-sample random masking by per-sample shuffling.
+        Per-sample shuffling is done by argsort random noise.
+        x: [N, L, D], sequence
+        """
+        N, L, D = x.shape  # batch, length, dim
+        len_keep = int(L * (1 - mask_ratio))
+        patch_normal_std = x_normal.std(dim=-2)
+        patch_normal_intensity = patch_normal_std.norm(p=2, dim=-1)
+        patch_normal_intensity = patch_normal_intensity / (patch_normal_intensity.max() * tau + 1e-10)
+        patch_normal_intensity = F.softmax(patch_normal_intensity, dim=-1)
+        
+        noise = torch.log(patch_normal_intensity) - torch.log(-torch.log(torch.rand(N, L, device=x.device) + 1e-10) + 1e-10)
+        
+        # sort noise for each sample
+        ids_shuffle = torch.argsort(noise, dim=1)  # ascend: small is keep, large is remove
+        ids_restore = torch.argsort(ids_shuffle, dim=1)
+
+        # keep the first subset
+        ids_keep = ids_shuffle[:, :len_keep]
+        x_masked = torch.gather(x, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, D))
+
+        # generate the binary mask: 0 is keep, 1 is remove
+        mask = torch.ones([N, L], device=x.device)
+        mask[:, :len_keep] = 0
+        # unshuffle to get the binary mask
+        mask = torch.gather(mask, dim=1, index=ids_restore)
+
+        return x_masked, mask, ids_restore
 
     def forward_encoder(self, x, mask_ratio):
         # if self.pred_normal_map:
         #     normal = batch_calc_normal_map(x, 0, 1)
         #     x = torch.concat([x, normal], dim=1)
         # embed patches
+        imgs = x.clone()
         x = self.patch_embed(x)
 
         # add pos embed w/o cls token
@@ -190,7 +243,11 @@ class MaskedAutoencoderViT(nn.Module):
 
         # masking: length -> length * mask_ratio
         mask_ratio = mask_ratio if self.training else 0.0
-        x, mask, ids_restore = self.random_masking(x, mask_ratio)
+        if self.masking_tau is not None:
+            x_normal = self.normal_patchify(imgs)
+            x, mask, ids_restore = self.normal_guided_random_masking(x, x_normal, mask_ratio, self.masking_tau)
+        else:
+            x, mask, ids_restore = self.random_masking(x, mask_ratio)
 
         # append cls token
         cls_token = self.cls_token + self.pos_embed[:, :1, :]
@@ -201,6 +258,7 @@ class MaskedAutoencoderViT(nn.Module):
         for blk in self.blocks:
             x = blk(x)
         x = self.norm(x)
+        x = self.enc_drop(x)
 
         return x, mask, ids_restore
 
